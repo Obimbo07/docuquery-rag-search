@@ -10,6 +10,18 @@ export const upload = api<void, UploadResponse>(
   { expose: true, method: "POST", path: "/upload" },
   async (req, { request }) => {
     try {
+      // Set CORS headers for browser requests
+      const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+
+      // Handle preflight requests
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 200, headers });
+      }
+
       // Get the raw request body for multipart parsing
       const bufferChunks: Buffer[] = [];
       
@@ -18,56 +30,79 @@ export const upload = api<void, UploadResponse>(
       }
       
       const buffer = Buffer.concat(bufferChunks);
-      const boundary = request.headers['content-type']?.split('boundary=')[1];
+      const contentType = request.headers['content-type'] || '';
+      const boundary = contentType.split('boundary=')[1];
       
       if (!boundary) {
-        throw APIError.invalidArgument("No multipart boundary found");
+        throw APIError.invalidArgument("No multipart boundary found in Content-Type header");
       }
 
-      // Simple multipart parser for PDF files
+      // Parse multipart form data
       const boundaryBuffer = Buffer.from(`--${boundary}`);
-      const parts = [];
-      let start = 0;
+      const endBoundaryBuffer = Buffer.from(`--${boundary}--`);
       
-      while (true) {
-        const boundaryIndex = buffer.indexOf(boundaryBuffer, start);
-        if (boundaryIndex === -1) break;
-        
-        if (start !== 0) {
-          parts.push(buffer.slice(start, boundaryIndex));
-        }
-        start = boundaryIndex + boundaryBuffer.length;
-      }
-
       let fileBuffer: Buffer | null = null;
       let filename = "unknown.pdf";
 
-      for (const part of parts) {
-        const headerEnd = part.indexOf('\r\n\r\n');
-        if (headerEnd === -1) continue;
-        
-        const headers = part.slice(0, headerEnd).toString();
-        const content = part.slice(headerEnd + 4, part.length - 2); // Remove trailing \r\n
-        
-        if (headers.includes('name="file"')) {
-          fileBuffer = content;
-          
-          // Extract filename from Content-Disposition header
-          const filenameMatch = headers.match(/filename="([^"]+)"/);
-          if (filenameMatch) {
-            filename = filenameMatch[1];
-          }
-          break;
-        }
+      // Find the start of the first part
+      let currentIndex = buffer.indexOf(boundaryBuffer);
+      if (currentIndex === -1) {
+        throw APIError.invalidArgument("Invalid multipart format");
       }
 
-      if (!fileBuffer) {
-        throw APIError.invalidArgument("No file provided");
+      while (currentIndex !== -1) {
+        // Find the next boundary or end boundary
+        const nextBoundaryIndex = buffer.indexOf(boundaryBuffer, currentIndex + boundaryBuffer.length);
+        const endBoundaryIndex = buffer.indexOf(endBoundaryBuffer, currentIndex);
+        
+        let partEnd = nextBoundaryIndex;
+        if (endBoundaryIndex !== -1 && (nextBoundaryIndex === -1 || endBoundaryIndex < nextBoundaryIndex)) {
+          partEnd = endBoundaryIndex;
+        }
+        
+        if (partEnd === -1) break;
+
+        // Extract this part
+        const partStart = currentIndex + boundaryBuffer.length;
+        const partBuffer = buffer.slice(partStart, partEnd);
+        
+        // Find headers end (\r\n\r\n)
+        const headersEnd = partBuffer.indexOf('\r\n\r\n');
+        if (headersEnd !== -1) {
+          const headers = partBuffer.slice(0, headersEnd).toString();
+          const content = partBuffer.slice(headersEnd + 4);
+          
+          // Remove trailing \r\n if present
+          const cleanContent = content.slice(0, content.length - 2);
+          
+          if (headers.includes('name="file"') && headers.includes('filename=')) {
+            fileBuffer = cleanContent;
+            
+            // Extract filename from Content-Disposition header
+            const filenameMatch = headers.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              filename = filenameMatch[1];
+            }
+            break;
+          }
+        }
+        
+        currentIndex = nextBoundaryIndex;
+      }
+
+      if (!fileBuffer || fileBuffer.length === 0) {
+        throw APIError.invalidArgument("No file provided or file is empty");
       }
 
       // Validate file type
       if (!filename.toLowerCase().endsWith('.pdf')) {
         throw APIError.invalidArgument("Only PDF files are supported");
+      }
+
+      // Check if it's actually a PDF by looking at the file header
+      const pdfHeader = fileBuffer.slice(0, 4).toString();
+      if (pdfHeader !== '%PDF') {
+        throw APIError.invalidArgument("Invalid PDF file format");
       }
 
       // Extract text from PDF

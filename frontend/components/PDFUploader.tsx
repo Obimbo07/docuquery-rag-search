@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
+import backend from "~backend/client";
 
 interface PDFUploaderProps {
   onSuccess?: () => void;
@@ -39,20 +40,36 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
         setProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
+      // Use the Encore.ts backend client instead of direct fetch
       const formData = new FormData();
       formData.append("file", file);
 
-      // Use the correct backend URL for Encore.ts
-      const backendUrl = import.meta.env.DEV 
-        ? 'http://localhost:4000' 
-        : `${window.location.protocol}//${window.location.hostname}:4000`;
+      // Convert FormData to raw body for Encore.ts upload
+      const boundary = `----formdata-encore-${Date.now()}`;
+      let body = '';
+      
+      body += `--${boundary}\r\n`;
+      body += `Content-Disposition: form-data; name="file"; filename="${file.name}"\r\n`;
+      body += `Content-Type: ${file.type}\r\n\r\n`;
+      
+      // Read file as ArrayBuffer and convert to binary string
+      const fileBuffer = await file.arrayBuffer();
+      const fileBytes = new Uint8Array(fileBuffer);
+      let binaryString = '';
+      for (let i = 0; i < fileBytes.length; i++) {
+        binaryString += String.fromCharCode(fileBytes[i]);
+      }
+      
+      body += binaryString;
+      body += `\r\n--${boundary}--\r\n`;
 
-      const response = await fetch(`${backendUrl}/upload`, {
-        method: "POST",
-        body: formData,
+      // Use Encore's upload endpoint
+      const response = await fetch('/api/upload', {
+        method: 'POST',
         headers: {
-          // Don't set Content-Type for FormData, let the browser set it with boundary
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
         },
+        body: body,
       });
 
       clearInterval(progressInterval);
@@ -65,37 +82,21 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
           const errorText = await response.text();
           console.error("Error response:", errorText);
           
-          // Check if it's HTML (likely a 404 or routing error)
-          if (errorText.trim().startsWith('<!DOCTYPE html>') || errorText.trim().startsWith('<html')) {
-            errorMessage = "Backend API not available. Please ensure the Encore.ts backend is running on port 4000.";
-          } else {
-            // Try to parse as JSON first, fallback to text
-            try {
-              const errorJson = JSON.parse(errorText);
-              errorMessage = errorJson.message || errorMessage;
-            } catch {
-              // If not JSON, use the text as is (but limit length)
-              errorMessage = errorText.length > 200 ? errorText.substring(0, 200) + "..." : errorText;
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.message || errorMessage;
+          } catch {
+            if (errorText.length > 200) {
+              errorMessage = errorText.substring(0, 200) + "...";
+            } else {
+              errorMessage = errorText || errorMessage;
             }
           }
         } catch {
-          // Fallback to default message
+          // Use default error message
         }
         
         throw new Error(errorMessage);
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error("Expected JSON response but got:", text);
-        
-        // Check if we got HTML instead of JSON (routing issue)
-        if (text.trim().startsWith('<!DOCTYPE html>') || text.trim().startsWith('<html')) {
-          throw new Error("Backend API not available. Please ensure the Encore.ts backend is running on port 4000.");
-        }
-        
-        throw new Error("Server returned an unexpected response format");
       }
 
       const result = await response.json();
