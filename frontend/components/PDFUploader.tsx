@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
-import backend from "~backend/client";
 
 interface PDFUploaderProps {
   onSuccess?: () => void;
@@ -40,36 +39,14 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
         setProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
-      // Use the Encore.ts backend client instead of direct fetch
+      // Create form data with proper multipart format
       const formData = new FormData();
       formData.append("file", file);
 
-      // Convert FormData to raw body for Encore.ts upload
-      const boundary = `----formdata-encore-${Date.now()}`;
-      let body = '';
-      
-      body += `--${boundary}\r\n`;
-      body += `Content-Disposition: form-data; name="file"; filename="${file.name}"\r\n`;
-      body += `Content-Type: ${file.type}\r\n\r\n`;
-      
-      // Read file as ArrayBuffer and convert to binary string
-      const fileBuffer = await file.arrayBuffer();
-      const fileBytes = new Uint8Array(fileBuffer);
-      let binaryString = '';
-      for (let i = 0; i < fileBytes.length; i++) {
-        binaryString += String.fromCharCode(fileBytes[i]);
-      }
-      
-      body += binaryString;
-      body += `\r\n--${boundary}--\r\n`;
-
-      // Use Encore's upload endpoint
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        },
-        body: body,
+      // Use the correct Encore.ts API endpoint
+      const response = await fetch("http://localhost:4000/upload", {
+        method: "POST",
+        body: formData,
       });
 
       clearInterval(progressInterval);

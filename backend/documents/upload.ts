@@ -10,93 +10,49 @@ export const upload = api<void, UploadResponse>(
   { expose: true, method: "POST", path: "/upload" },
   async (req, { request }) => {
     try {
-      // Set CORS headers for browser requests
-      const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      };
-
-      // Handle preflight requests
+      // Handle preflight CORS requests
       if (request.method === 'OPTIONS') {
-        return new Response(null, { status: 200, headers });
-      }
-
-      // Get the raw request body for multipart parsing
-      const bufferChunks: Buffer[] = [];
-      
-      for await (const chunk of request) {
-        bufferChunks.push(chunk);
-      }
-      
-      const buffer = Buffer.concat(bufferChunks);
-      const contentType = request.headers['content-type'] || '';
-      const boundary = contentType.split('boundary=')[1];
-      
-      if (!boundary) {
-        throw APIError.invalidArgument("No multipart boundary found in Content-Type header");
-      }
-
-      // Parse multipart form data
-      const boundaryBuffer = Buffer.from(`--${boundary}`);
-      const endBoundaryBuffer = Buffer.from(`--${boundary}--`);
-      
-      let fileBuffer: Buffer | null = null;
-      let filename = "unknown.pdf";
-
-      // Find the start of the first part
-      let currentIndex = buffer.indexOf(boundaryBuffer);
-      if (currentIndex === -1) {
-        throw APIError.invalidArgument("Invalid multipart format");
-      }
-
-      while (currentIndex !== -1) {
-        // Find the next boundary or end boundary
-        const nextBoundaryIndex = buffer.indexOf(boundaryBuffer, currentIndex + boundaryBuffer.length);
-        const endBoundaryIndex = buffer.indexOf(endBoundaryBuffer, currentIndex);
-        
-        let partEnd = nextBoundaryIndex;
-        if (endBoundaryIndex !== -1 && (nextBoundaryIndex === -1 || endBoundaryIndex < nextBoundaryIndex)) {
-          partEnd = endBoundaryIndex;
-        }
-        
-        if (partEnd === -1) break;
-
-        // Extract this part
-        const partStart = currentIndex + boundaryBuffer.length;
-        const partBuffer = buffer.slice(partStart, partEnd);
-        
-        // Find headers end (\r\n\r\n)
-        const headersEnd = partBuffer.indexOf('\r\n\r\n');
-        if (headersEnd !== -1) {
-          const headers = partBuffer.slice(0, headersEnd).toString();
-          const content = partBuffer.slice(headersEnd + 4);
-          
-          // Remove trailing \r\n if present
-          const cleanContent = content.slice(0, content.length - 2);
-          
-          if (headers.includes('name="file"') && headers.includes('filename=')) {
-            fileBuffer = cleanContent;
-            
-            // Extract filename from Content-Disposition header
-            const filenameMatch = headers.match(/filename="([^"]+)"/);
-            if (filenameMatch) {
-              filename = filenameMatch[1];
-            }
-            break;
+        return new Response(null, { 
+          status: 200, 
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
           }
-        }
-        
-        currentIndex = nextBoundaryIndex;
+        });
       }
 
-      if (!fileBuffer || fileBuffer.length === 0) {
-        throw APIError.invalidArgument("No file provided or file is empty");
+      const contentType = request.headers.get('content-type') || '';
+      
+      if (!contentType.includes('multipart/form-data')) {
+        throw APIError.invalidArgument("Content-Type must be multipart/form-data");
       }
 
-      // Validate file type
-      if (!filename.toLowerCase().endsWith('.pdf')) {
+      // Parse multipart data using the Web API
+      let formData: FormData;
+      try {
+        formData = await request.formData();
+      } catch (error) {
+        console.error("FormData parsing error:", error);
+        throw APIError.invalidArgument("Failed to parse multipart form data");
+      }
+
+      const file = formData.get('file') as File;
+      
+      if (!file) {
+        throw APIError.invalidArgument("No file provided in form data");
+      }
+
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
         throw APIError.invalidArgument("Only PDF files are supported");
+      }
+
+      // Convert file to buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const fileBuffer = Buffer.from(arrayBuffer);
+
+      if (fileBuffer.length === 0) {
+        throw APIError.invalidArgument("File is empty");
       }
 
       // Check if it's actually a PDF by looking at the file header
@@ -115,7 +71,7 @@ export const upload = api<void, UploadResponse>(
       // Create document record
       const documentId = await documentsDB.queryRow<{ id: string }>`
         INSERT INTO documents (filename, content, file_size)
-        VALUES (${filename}, ${extractedText}, ${fileBuffer.length})
+        VALUES (${file.name}, ${extractedText}, ${fileBuffer.length})
         RETURNING id
       `;
 
@@ -161,7 +117,7 @@ export const upload = api<void, UploadResponse>(
 
       return {
         id: documentId.id,
-        filename,
+        filename: file.name,
         chunks: textChunks.length,
         processed: true
       };
