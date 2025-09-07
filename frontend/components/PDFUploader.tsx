@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
+import backend from "~backend/client";
 
 interface PDFUploaderProps {
   onSuccess?: () => void;
@@ -43,8 +44,8 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
       const formData = new FormData();
       formData.append("file", file);
 
-      // Use the correct Encore.ts API endpoint
-      const response = await fetch("http://localhost:4000/upload", {
+      // Use the Encore.ts backend client instead of direct fetch
+      const response = await fetch("/api/upload", {
         method: "POST",
         body: formData,
       });

@@ -10,18 +10,6 @@ export const upload = api<void, UploadResponse>(
   { expose: true, method: "POST", path: "/upload" },
   async (req, { request }) => {
     try {
-      // Handle preflight CORS requests
-      if (request.method === 'OPTIONS') {
-        return new Response(null, { 
-          status: 200, 
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-          }
-        });
-      }
-
       const contentType = request.headers.get('content-type') || '';
       
       if (!contentType.includes('multipart/form-data')) {
