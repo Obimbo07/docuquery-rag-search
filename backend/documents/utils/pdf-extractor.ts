@@ -2,10 +2,14 @@ import pdfParse from "pdf-parse";
 
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
+    console.log("Starting PDF text extraction...");
+    
     // Validate that we have a proper PDF buffer
     if (!buffer || buffer.length === 0) {
       throw new Error("Empty or invalid buffer provided");
     }
+
+    console.log(`PDF buffer size: ${buffer.length} bytes`);
 
     // Check PDF header
     const header = buffer.slice(0, 4).toString();
@@ -17,7 +21,10 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
       // Options for better text extraction
       normalizeWhitespace: true,
       disableCombineTextItems: false,
+      max: 0, // No limit on pages
     });
+
+    console.log(`Extracted ${data.numpages} pages, ${data.text.length} characters`);
 
     if (!data.text) {
       throw new Error("No text content found in PDF");
@@ -29,6 +36,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
       .replace(/\n\s*\n/g, '\n') // Remove empty lines
       .trim();
 
+    console.log(`Cleaned text length: ${cleanText.length} characters`);
     return cleanText;
   } catch (error) {
     console.error("PDF extraction error:", error);

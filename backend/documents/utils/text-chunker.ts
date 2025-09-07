@@ -1,6 +1,9 @@
 export function chunkText(text: string, chunkSize: number = 500, overlap: number = 50): string[] {
+  console.log(`Chunking text of length ${text.length} with chunk size ${chunkSize} and overlap ${overlap}`);
+  
   // Split text into sentences first
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  console.log(`Split into ${sentences.length} sentences`);
   
   const chunks: string[] = [];
   let currentChunk = "";
@@ -27,7 +30,10 @@ export function chunkText(text: string, chunkSize: number = 500, overlap: number
     chunks.push(currentChunk.trim());
   }
   
-  return chunks.filter(chunk => chunk.length > 0);
+  const finalChunks = chunks.filter(chunk => chunk.length > 0);
+  console.log(`Created ${finalChunks.length} chunks`);
+  
+  return finalChunks;
 }
 
 function estimateTokens(text: string): number {

@@ -44,8 +44,8 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
       const formData = new FormData();
       formData.append("file", file);
 
-      // Use the Encore.ts backend client instead of direct fetch
-      const response = await fetch("/api/upload", {
+      // Use direct fetch to the backend upload endpoint
+      const response = await fetch("http://localhost:4000/upload", {
         method: "POST",
         body: formData,
       });
