@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Search, Loader2, FileText, Sparkles } from "lucide-react";
+import { Search, Loader2, FileText, Sparkles, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/use-toast";
 import backend from "~backend/client";
 import type { SearchResult } from "~backend/documents/types";
@@ -20,6 +20,7 @@ export function SearchPage() {
   const [generatedAnswer, setGeneratedAnswer] = useState<GeneratedAnswer | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
   const handleSearch = async () => {
@@ -35,6 +36,7 @@ export function SearchPage() {
     setLoading(true);
     setResults([]);
     setGeneratedAnswer(null);
+    setError(null);
 
     try {
       const response = await backend.documents.search({
@@ -52,9 +54,23 @@ export function SearchPage() {
       }
     } catch (error) {
       console.error("Search error:", error);
+      
+      let errorMessage = "An error occurred while searching. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("timeout") || error.message.includes("500")) {
+          errorMessage = "The backend server is not responding. Please make sure the backend is running and the database is connected.";
+        } else if (error.message.includes("Failed to fetch")) {
+          errorMessage = "Cannot connect to the backend server. Please make sure the backend is running on port 4000.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setError(errorMessage);
       toast({
         title: "Search Failed",
-        description: "An error occurred while searching. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -85,9 +101,22 @@ export function SearchPage() {
       setGeneratedAnswer(response);
     } catch (error) {
       console.error("Generate error:", error);
+      
+      let errorMessage = "An error occurred while generating the answer. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("timeout") || error.message.includes("500")) {
+          errorMessage = "The backend server is not responding. Please make sure the backend is running.";
+        } else if (error.message.includes("Failed to fetch")) {
+          errorMessage = "Cannot connect to the backend server. Please make sure the backend is running on port 4000.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         title: "Generation Failed",
-        description: "An error occurred while generating the answer. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -131,6 +160,21 @@ export function SearchPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="space-y-2">
+            <p>{error}</p>
+            <div className="flex gap-2 mt-2">
+              <Button onClick={handleSearch} variant="outline" size="sm" disabled={!query.trim()}>
+                Try Again
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Generated Answer */}
       {results.length > 0 && (
@@ -204,7 +248,7 @@ export function SearchPage() {
       )}
 
       {/* Empty State */}
-      {!loading && results.length === 0 && query && (
+      {!loading && results.length === 0 && query && !error && (
         <Card className="text-center py-12">
           <CardContent>
             <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />

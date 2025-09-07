@@ -12,6 +12,15 @@ export const upload = api<void, UploadResponse>(
     try {
       console.log("Upload endpoint called");
       
+      // Check if database is accessible
+      try {
+        await documentsDB.queryRow`SELECT 1`;
+        console.log("Database connection verified");
+      } catch (dbError) {
+        console.error("Database connection failed:", dbError);
+        throw APIError.internal("Database connection failed. Please ensure PostgreSQL is running and accessible.");
+      }
+      
       const contentType = request.headers.get('content-type') || '';
       console.log(`Content-Type: ${contentType}`);
       
@@ -91,26 +100,38 @@ export const upload = api<void, UploadResponse>(
 
       // Generate embeddings for chunks
       console.log("Generating embeddings...");
-      const embeddings = await generateEmbeddings(textChunks);
-      console.log(`Generated ${embeddings.length} embeddings`);
+      let embeddings: number[][];
+      try {
+        embeddings = await generateEmbeddings(textChunks);
+        console.log(`Generated ${embeddings.length} embeddings`);
+      } catch (embeddingError) {
+        console.error("Embedding generation failed:", embeddingError);
+        // Continue without embeddings - store chunks with null embeddings
+        embeddings = textChunks.map(() => []);
+        console.log("Continuing without embeddings");
+      }
 
       // Store chunks with embeddings
       console.log("Storing chunks in database...");
       const chunkPromises = textChunks.map(async (chunk, index) => {
         const embedding = embeddings[index];
-        const embeddingJson = JSON.stringify(embedding);
-        const embeddingArray = `[${embedding.join(',')}]`;
+        const embeddingJson = embedding.length > 0 ? JSON.stringify(embedding) : null;
+        const embeddingArray = embedding.length > 0 ? `[${embedding.join(',')}]` : null;
         
         try {
-          // Check if vector column exists, if not use text storage
-          await documentsDB.exec`
-            INSERT INTO document_chunks (document_id, content, chunk_index, embedding, embedding_vector)
-            VALUES (${documentId.id}, ${chunk}, ${index}, ${embeddingJson}, ${embeddingArray}::vector)
-          `;
-          console.log(`Stored chunk ${index + 1}/${textChunks.length} with vector`);
+          // Try to store with vector if available and embedding exists
+          if (embeddingArray) {
+            await documentsDB.exec`
+              INSERT INTO document_chunks (document_id, content, chunk_index, embedding, embedding_vector)
+              VALUES (${documentId.id}, ${chunk}, ${index}, ${embeddingJson}, ${embeddingArray}::vector)
+            `;
+            console.log(`Stored chunk ${index + 1}/${textChunks.length} with vector`);
+          } else {
+            throw new Error("No embedding available");
+          }
         } catch (vectorError) {
           console.log(`Vector storage failed for chunk ${index + 1}, falling back to text storage`);
-          // Fallback to text storage if vector column doesn't exist
+          // Fallback to text storage
           await documentsDB.exec`
             INSERT INTO document_chunks (document_id, content, chunk_index, embedding)
             VALUES (${documentId.id}, ${chunk}, ${index}, ${embeddingJson})
@@ -146,7 +167,20 @@ export const upload = api<void, UploadResponse>(
       if (error instanceof APIError) {
         throw error;
       }
-      throw APIError.internal("Failed to process document", error);
+      
+      // Provide more specific error messages based on the error type
+      let errorMessage = "Failed to process document";
+      if (error instanceof Error) {
+        if (error.message.includes("database") || error.message.includes("connection")) {
+          errorMessage = "Database connection failed. Please ensure PostgreSQL is running.";
+        } else if (error.message.includes("embedding")) {
+          errorMessage = "AI model loading failed. This may be due to insufficient memory or network issues.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      throw APIError.internal(errorMessage, error);
     }
   }
 );

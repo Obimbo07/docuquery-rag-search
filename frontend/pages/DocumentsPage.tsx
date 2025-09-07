@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { FileText, Upload, Calendar, Database } from "lucide-react";
+import { FileText, Upload, Calendar, Database, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/use-toast";
 import { PDFUploader } from "../components/PDFUploader";
 import backend from "~backend/client";
@@ -11,18 +12,34 @@ import type { Document } from "~backend/documents/types";
 export function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showUploader, setShowUploader] = useState(false);
   const { toast } = useToast();
 
   const loadDocuments = async () => {
     try {
+      setError(null);
       const response = await backend.documents.list();
       setDocuments(response.documents);
     } catch (error) {
       console.error("Failed to load documents:", error);
+      
+      let errorMessage = "Failed to load documents. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("timeout") || error.message.includes("500")) {
+          errorMessage = "The backend server is not responding. Please make sure the backend is running and the database is connected.";
+        } else if (error.message.includes("Failed to fetch")) {
+          errorMessage = "Cannot connect to the backend server. Please make sure the backend is running on port 4000.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setError(errorMessage);
       toast({
-        title: "Error",
-        description: "Failed to load documents. Please try again.",
+        title: "Connection Error",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -68,6 +85,52 @@ export function DocumentsPage() {
           <Database className="h-12 w-12 mx-auto text-muted-foreground animate-pulse" />
           <p className="text-muted-foreground">Loading documents...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Documents</h1>
+            <p className="text-muted-foreground">
+              Manage your uploaded PDF documents
+            </p>
+          </div>
+        </div>
+
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="space-y-2">
+            <p>{error}</p>
+            <div className="flex gap-2 mt-4">
+              <Button onClick={loadDocuments} variant="outline" size="sm">
+                Try Again
+              </Button>
+              <Button 
+                onClick={() => window.location.reload()} 
+                variant="outline" 
+                size="sm"
+              >
+                Refresh Page
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <CardTitle className="mb-2">Backend Connection Error</CardTitle>
+            <CardDescription className="mb-4 max-w-md mx-auto">
+              Make sure the backend server is running and accessible. 
+              You can start it with <code className="bg-muted px-1 rounded">npm run dev</code> 
+              and ensure PostgreSQL is running with Docker.
+            </CardDescription>
+          </CardContent>
+        </Card>
       </div>
     );
   }

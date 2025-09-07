@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
-import backend from "~backend/client";
+import { backendUrl } from "../config";
 
 interface PDFUploaderProps {
   onSuccess?: () => void;
@@ -44,8 +44,8 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
       const formData = new FormData();
       formData.append("file", file);
 
-      // Use direct fetch to the backend upload endpoint
-      const response = await fetch("http://localhost:4000/upload", {
+      // Use the configured backend URL
+      const response = await fetch(`${backendUrl}/upload`, {
         method: "POST",
         body: formData,
       });
@@ -92,9 +92,18 @@ export function PDFUploader({ onSuccess }: PDFUploaderProps) {
     } catch (error) {
       console.error("Upload error:", error);
       setProgress(0);
+      
+      let errorMessage = "An error occurred while uploading the file. Please try again.";
+      
+      if (error instanceof TypeError && error.message === "Failed to fetch") {
+        errorMessage = "Cannot connect to the backend server. Please make sure the backend is running on port 4000.";
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: "Upload Failed",
-        description: error instanceof Error ? error.message : "An error occurred while uploading the file. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
